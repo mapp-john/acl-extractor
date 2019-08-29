@@ -1,4 +1,3 @@
-import os
 import re
 import json
 import time
@@ -120,7 +119,7 @@ def get_firewall_policies(connection, output):
 # =============================================================================
                 else:
                     entry = {'error': f'Unable to find Source Object: {line}\nDevice: {output["hostname"]}, {output["ip_address"]}\nProtocol: {protocol}\nService Object: {service_object}\n'}
-                    print(entry['error'])                           
+                    print(f'[{str(counter)}] {entry["error"]}')                         
                 # search for destination network objects starting from source
                 if src_ip:
                     regex_search = re.search(fr'({src_ip}\s*((eq\s(\S*)|gt\s(\S*)|range\s(\S*)\s*(\S*))(?!object-group|object|host)\s*)?\s*((((object-group|object)|host)\s*(\S*))|(\s*((\d{{1,3}}\.\d{{1,3}}\.\d{{1,3}}\.\d{{1,3}}\s*){{2}}))|(any6|any4|any))\s*((eq\s(\S*)|gt\s(\S*)|range\s(\S*)\s*(\S*))(?!object-group|object|host)\s*)?)(\w*\s*)*(\(hitcnt=(\d*)\)\s*?)?\s*(0x.*$)?',line)
@@ -170,7 +169,7 @@ def get_firewall_policies(connection, output):
                 print(entry['error'])
         except:
             entry = {'error': f'Exception: {line}\nDevice: {output["hostname"]}, {output["ip_address"]}\n{traceback.format_exc()}'} 
-            print(entry['error'])
+            print(f'[{str(counter)}] {entry["error"]}')
             
         # If an entry exists
         if entry:
@@ -180,7 +179,7 @@ def get_firewall_policies(connection, output):
                 output['firewall_policies'][policy_name] = {'date':date,'interface':None,'direction':None,'entries': []}
                 output['firewall_policies'][policy_name]['entries'].append(entry)
             except:
-                print(f'Failed to append details for entry: {json.dumps(entry, indent=4)}\nDevice: {output["hostname"]}, {output["ip_address"]}\n{traceback.format_exc()}')
+                print(f'[{str(counter)}] Failed to append details for entry: {json.dumps(entry, indent=4)}\nDevice: {output["hostname"]}, {output["ip_address"]}\n{traceback.format_exc()}')
         # If RegEx searches succeeded
         elif dst_ip or dst_net_object:
             # Append entry to Policy Dict
@@ -205,7 +204,7 @@ def get_firewall_policies(connection, output):
                 output['firewall_policies'][policy_name] = {'date':date,'interface':None,'direction':None,'entries': []}
                 output['firewall_policies'][policy_name]['entries'].append(entry)
             except:
-                print(f'Failed to append details for entry: {json.dumps(entry, indent=4)}\nDevice: {output["hostname"]}, {output["ip_address"]}\n{traceback.format_exc()}')
+                print(f'[{str(counter)}] Failed to append details for entry: {json.dumps(entry, indent=4)}\nDevice: {output["hostname"]}, {output["ip_address"]}\n{traceback.format_exc()}')
     
     
     temp_string = connection.send_command('show run access-group')
@@ -226,7 +225,7 @@ def get_firewall_policies(connection, output):
             output['firewall_policies'][policy_name]['interface'] = interface
             output['firewall_policies'][policy_name]['direction'] = direction
         except:
-            print(f'Failed to append details for access-group: {line}\nDevice: {output["hostname"]}, {output["ip_address"]}\n{traceback.format_exc()}')
+            print(f'[{str(counter)}] Failed to append details for access-group: {line}\nDevice: {output["hostname"]}, {output["ip_address"]}\n{traceback.format_exc()}')
             
     return output
 
@@ -237,9 +236,9 @@ def COMMANDS(username,password,counter,device_type,devices,deviceList,outputList
     
     Example output:
     {
-        'hostname': '',
-        'ip_address': '',
-        'uptime': '',
+        'hostname': 'hostname.domain.com',
+        'ip_address': '10.10.1.1',
+        'uptime': '9 days 11 hours',
         'firewall_policies': {
             'acl-in': { 
                 'interface': 'INSIDE',
@@ -263,7 +262,7 @@ def COMMANDS(username,password,counter,device_type,devices,deviceList,outputList
                         'src_port': None,
                         'dst_port': 'pop3',
                         'hit_count': 0,
-                        'id': '0x095eb91e',
+                        'id': '0x0958b91e',
                     }
                 ]        
         }
@@ -271,33 +270,42 @@ def COMMANDS(username,password,counter,device_type,devices,deviceList,outputList
     """
     while not deviceList.empty():
         device = deviceList.get_nowait()
+        hostname = None
+        ip_address = None
         output = {}
+        
+        # Performing nslookup on device name
+        if re.match(r'\b((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\b',device):
+            ip_address = device
+            try:
+                hostname = socket.gethostbyaddr(device)[0]
+            except:
+                hostname = None
+        else:
+            hostname = socket.gethostbyaddr(device)[0]
+            try:
+                ip_address = socket.gethostbyaddr(device)[-1][0]
+            except:
+                ip_address = None
+        
+        
         try:
             # Connection Break
             counter = len(devices)-deviceList.qsize()
             print(f'[{str(counter)}] Connecting to {device}')
             # Connection Handler
             connection = netmiko.ConnectHandler(ip=device, device_type=device_type, username=username, password=password, secret=password, global_delay_factor=10)
-            # Performing nslookup on device name
-            if re.match(r'\b((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\b',device):
-                ip_address = device
-                try:
-                    hostname = socket.gethostbyaddr(device)[0]
-                except:
-                    # Hostname
-                    show_output = connection.send_command('sh run hostname').strip()
-                    hostname = show_output.split()[-1]
-                    # Domain
-                    show_output = connection.send_command('sh run domain').strip()
-                    domain = show_output.split()[-1]
-                    if not domain == None: 
-                        hostname = f'{hostname}.{domain}'
-            else:
-                hostname = device
-                try:
-                    ip_address = socket.getaddrinfo(device,0,0,0,0)[-1][-1][0]
-                except:
-                    ip_address = 'NONE'
+            
+            # Get device name from config
+            if not hostname:
+                show_output = connection.send_command('sh run hostname').strip()
+                hostname = show_output.split()[-1]
+                # Domain
+                show_output = connection.send_command('sh run domain').strip()
+                domain = show_output.split()[-1]
+                if not domain == None: 
+                    hostname = f'{hostname}.{domain}'
+                    
             show_output = connection.send_command('sh ver | in up').strip()
             for line in show_output.splitlines():
                 if line.split()[1] == 'up':
@@ -313,7 +321,7 @@ def COMMANDS(username,password,counter,device_type,devices,deviceList,outputList
             connection.disconnect()
             
             outputList.put(output)
-            #print(json.dumps(json.loads(json.dumps(output)),indent=4))
+            #print(json.dumps(output,indent=4))
 
         except:    # exceptions as exceptionOccured:
             outputList.put(f'\n!\n[{str(counter)}] CONNECTIVITY: CONNECTION ERROR - {device}\n!\n!\n{traceback.format_exc()}')
@@ -386,7 +394,7 @@ def script(form,configSettings):
     
     # Write JSON output to file
     with open(outputFileName_json,'w') as outputFile:
-        outputFile.write(json.dumps(json.loads(json.dumps(jsonOutput)),indent=4))
+        outputFile.write(json.dumps(jsonOutput,indent=4))
 
     # ZIP Output File
     ZipFileName = outputFileName.replace('.txt','.zip')
